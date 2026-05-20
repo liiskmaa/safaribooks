@@ -1,179 +1,131 @@
 # SafariBooks
-Download and generate *EPUB* of your favorite books from [*Safari Books Online*](https://www.safaribooksonline.com) library.  
-I'm not responsible for the use of this program, this is only for *personal* and *educational* purpose.  
-Before any usage please read the *O'Reilly*'s [Terms of Service](https://learning.oreilly.com/terms/).  
+Download and save your favorite books from [O'Reilly Learning](https://learning.oreilly.com) as EPUB files.  
+This is for *personal* and *educational* use only. Please read [O'Reilly's Terms of Service](https://learning.oreilly.com/terms/) before using.
+
+> **This is a fork of [lorenzodifuccia/safaribooks](https://github.com/lorenzodifuccia/safaribooks).** The original project stopped working when O'Reilly shut down their v1 API. This fork fixes that by migrating to the current v2 API, so downloads work again.
 
 <a href='https://ko-fi.com/Y8Y0MPEGU' target='_blank'><img height='80' style='border:0px;height:60px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com'/></a>
 
-## ✨✨ *Attention needed* ✨✨
-- This project is no longer actively maintained.  
-- *Login through `safaribooks` no longer works due to changes in ORLY APIs.*
-- *The program needs a major refactor to include new features and integrate new APIs.*
-- **However... it still work for downloading books.**  
-(Use SSO hack: log in via browser, then copy cookies into `cookies.json`, see below and issues. Love ❤️)
+---
+
+## What you need to know first
+
+**Login with email and password no longer works** — O'Reilly changed how their authentication works. The only way to use this tool today is to copy your session cookies from the browser. It takes about 30 seconds and is described below.
 
 ---
 
-## Overview:
-  * [Requirements & Setup](#requirements--setup)
-  * [Usage](#usage)
-  * [Single Sign-On (SSO), Company, University Login](https://github.com/lorenzodifuccia/safaribooks/issues/150#issuecomment-555423085)
-  * [Calibre EPUB conversion](https://github.com/lorenzodifuccia/safaribooks#calibre-epub-conversion)
-  * [Example: Download *Test-Driven Development with Python, 2nd Edition*](#download-test-driven-development-with-python-2nd-edition)
-  * [Example: Use or not the `--kindle` option](#use-or-not-the---kindle-option)
+## Prerequisites
 
-## Requirements & Setup:
-First of all, it requires `python3` and `pip3` or `pipenv` to be installed.  
-```shell
-$ git clone https://github.com/lorenzodifuccia/safaribooks.git
-Cloning into 'safaribooks'...
+You need these installed on your machine:
 
-$ cd safaribooks/
-$ pip3 install -r requirements.txt
+- **Python 3.6 or newer** — check with `python3 --version`
+- **pip** — usually comes with Python, check with `pip3 --version`
+- **Git** — to clone the repo, or just [download the ZIP](https://github.com/lorenzodifuccia/safaribooks/archive/refs/heads/master.zip) instead
 
-OR
+**Don't have Python?**
+- macOS: install via [Homebrew](https://brew.sh) with `brew install python`, or download from [python.org](https://www.python.org/downloads/)
+- Windows: download from [python.org](https://www.python.org/downloads/) — tick "Add Python to PATH" during install
+- Linux: `sudo apt install python3 python3-pip` (Debian/Ubuntu) or `sudo dnf install python3` (Fedora)
 
-$ pipenv install && pipenv shell
-```  
+**[Calibre](https://calibre-ebook.com/)** — a free e-book manager. The `download_book.sh` script uses Calibre's `ebook-convert` tool to automatically convert books after downloading, so Calibre must be installed for it to work. If you use `safaribooks.py` directly without the shell script, Calibre is still recommended — it converts the raw EPUB to a cleaner format that reads much better on Kindles and other e-readers.
 
-The program depends of only two **Python _3_** modules:
-```python3
-lxml>=4.1.1
-requests>=2.20.0
-```
-  
-## Usage:
-It's really simple to use, just choose a book from the library and replace in the following command:
-  * X-es with its ID, 
-  * `email:password` with your own. 
+---
+
+## Installation
 
 ```shell
-$ python3 safaribooks.py --cred "account_mail@mail.com:password01" XXXXXXXXXXXXX
+git clone https://github.com/lorenzodifuccia/safaribooks.git
+cd safaribooks/
+pip3 install -r requirements.txt
 ```
 
-The ID is the digits that you find in the URL of the book description page:  
-`https://www.safaribooksonline.com/library/view/book-name/XXXXXXXXXXXXX/`  
-Like: `https://www.safaribooksonline.com/library/view/test-driven-development-with/9781491958698/`  
-  
-#### Program options:
+That's it. No compilation, no configuration files.
+
+---
+
+## Step 1 — Get your session cookies
+
+You need to be logged in to [learning.oreilly.com](https://learning.oreilly.com) in your browser first.
+
+**Option A — Browser console (quick, works everywhere)**
+
+1. Open [learning.oreilly.com](https://learning.oreilly.com) in your browser
+2. Open the developer console (`F12` → Console tab, or right-click → Inspect → Console)
+3. Paste and run this:
+```javascript
+var o={};document.cookie.split(/\s*;\s*/).forEach(function(p){p=p.split(/\s*=\s*/);o[p[0]]=p.splice(1).join('=')});console.log(JSON.stringify(o))
+```
+4. Copy the output and save it as `cookies.json` in the safaribooks folder
+
+**Option B — Automatic extraction script (Chrome or Firefox)**
+
 ```shell
-$ python3 safaribooks.py --help
-usage: safaribooks.py [--cred <EMAIL:PASS> | --login] [--no-cookies]
-                      [--kindle] [--preserve-log] [--help]
-                      <BOOK ID>
-
-Download and generate an EPUB of your favorite books from Safari Books Online.
-
-positional arguments:
-  <BOOK ID>            Book digits ID that you want to download. You can find
-                       it in the URL (X-es):
-                       `https://learning.oreilly.com/library/view/book-
-                       name/XXXXXXXXXXXXX/`
-
-optional arguments:
-  --cred <EMAIL:PASS>  Credentials used to perform the auth login on Safari
-                       Books Online. Es. ` --cred
-                       "account_mail@mail.com:password01" `.
-  --login              Prompt for credentials used to perform the auth login
-                       on Safari Books Online.
-  --no-cookies         Prevent your session data to be saved into
-                       `cookies.json` file.
-  --kindle             Add some CSS rules that block overflow on `table` and
-                       `pre` elements. Use this option if you're going to
-                       export the EPUB to E-Readers like Amazon Kindle.
-  --preserve-log       Leave the `info_XXXXXXXXXXXXX.log` file even if there
-                       isn't any error.
-  --help               Show this help message.
+pip3 install browser_cookie3
+python3 retrieve_cookies.py
 ```
-  
-The first time you use the program, you'll have to specify your Safari Books Online account credentials (look [`here`](/../../issues/15) for special character).  
-The next times you'll download a book, before session expires, you can omit the credential, because the program save your session cookies in a file called `cookies.json`.  
-For **SSO**, please use the `sso_cookies.py` program in order to create the `cookies.json` file from the SSO cookies retrieved by your browser session (please follow [`these steps`](/../../issues/150#issuecomment-555423085)).  
-  
-Pay attention if you use a shared PC, because everyone that has access to your files can steal your session. 
-If you don't want to cache the cookies, just use the `--no-cookies` option and provide all time your credential through the `--cred` option or the more safe `--login` one: this will prompt you for credential during the script execution.
 
-You can configure proxies by setting on your system the environment variable `HTTPS_PROXY` or using the `USE_PROXY` directive into the script.
+This reads cookies directly from your browser. If it says "permission denied" on macOS, go to **System Settings → Privacy & Security → Full Disk Access** and add your Terminal app, then try again.
 
-#### Calibre EPUB conversion
-**Important**: since the script only download HTML pages and create a raw EPUB, many of the CSS and XML/HTML directives are wrong for an E-Reader. To ensure best quality of the output, I suggest you to always convert the `EPUB` obtained by the script to standard-`EPUB` with [Calibre](https://calibre-ebook.com/).
-You can also use the command-line version of Calibre with `ebook-convert`, e.g.:
-```bash
-$ ebook-convert "XXXX/safaribooks/Books/Test-Driven Development with Python 2nd Edition (9781491958698)/9781491958698.epub" "XXXX/safaribooks/Books/Test-Driven Development with Python 2nd Edition (9781491958698)/9781491958698_CLEAR.epub"
+> **Cookies expire.** If you get an authentication error, just redo this step to refresh `cookies.json`.
+
+---
+
+## Step 2 — Download a book
+
+Find your book on [learning.oreilly.com](https://learning.oreilly.com) and copy the ID from the URL — it's the number at the end:
+
 ```
-After the execution, you can read the `9781491958698_CLEAR.epub` in every E-Reader and delete all other files.
+https://learning.oreilly.com/library/view/book-name/9781098166298/
+                                                    ↑ this part
+```
 
-The program offers also an option to ensure best compatibilities for who wants to export the `EPUB` to E-Readers like Amazon Kindle: `--kindle`, it blocks overflow on `table` and `pre` elements (see [example](#use-or-not-the---kindle-option)).  
-In this case, I suggest you to convert the `EPUB` to `AZW3` with Calibre or to `MOBI`, remember in this case to select `Ignore margins` in the conversion options:  
-  
-![Calibre IgnoreMargins](https://github.com/lorenzodifuccia/cloudflare/raw/master/Images/safaribooks/safaribooks_calibre_IgnoreMargins.png "Select Ignore margins")  
-  
-## Examples:
-  * ## Download [Test-Driven Development with Python, 2nd Edition](https://www.safaribooksonline.com/library/view/test-driven-development-with/9781491958698/):  
-    ```shell
-    $ python3 safaribooks.py --cred "my_email@gmail.com:MyPassword1!" 9781491958698
+Then run:
 
-           ____     ___         _ 
-          / __/__ _/ _/__ _____(_)
-         _\ \/ _ `/ _/ _ `/ __/ / 
-        /___/\_,_/_/ \_,_/_/ /_/  
-          / _ )___  ___  / /__ ___
-         / _  / _ \/ _ \/  '_/(_-<
-        /____/\___/\___/_/\_\/___/
+```shell
+./download_book.sh BOOK_ID
+```
 
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    [-] Logging into Safari Books Online...
-    [*] Retrieving book info... 
-    [-] Title: Test-Driven Development with Python, 2nd Edition                     
-    [-] Authors: Harry J.W. Percival                                                
-    [-] Identifier: 9781491958698                                                   
-    [-] ISBN: 9781491958704                                                         
-    [-] Publishers: O'Reilly Media, Inc.                                            
-    [-] Rights: Copyright © O'Reilly Media, Inc.                                    
-    [-] Description: By taking you through the development of a real web application 
-    from beginning to end, the second edition of this hands-on guide demonstrates the 
-    practical advantages of test-driven development (TDD) with Python. You’ll learn 
-    how to write and run tests before building each part of your app, and then develop
-    the minimum amount of code required to pass those tests. The result? Clean code
-    that works.In the process, you’ll learn the basics of Django, Selenium, Git, 
-    jQuery, and Mock, along with curre...
-    [-] Release Date: 2017-08-18
-    [-] URL: https://learning.oreilly.com/library/view/test-driven-development-with/9781491958698/
-    [*] Retrieving book chapters...                                                 
-    [*] Output directory:                                                           
-        /XXXX/safaribooks/Books/Test-Driven Development with Python 2nd Edition (9781491958698)
-    [-] Downloading book contents... (53 chapters)                                  
-        [#####################################################################] 100%
-    [-] Downloading book CSSs... (2 files)                                          
-        [#####################################################################] 100%
-    [-] Downloading book images... (142 files)                                      
-        [#####################################################################] 100%
-    [-] Creating EPUB file...                                                       
-    [*] Done: /XXXX/safaribooks/Books/Test-Driven Development with Python 2nd Edition 
-    (9781491958698)/9781491958698.epub
-    
-        If you like it, please * this project on GitHub to make it known:
-            https://github.com/lorenzodifuccia/safaribooks
-        e don't forget to renew your Safari Books Online subscription:
-            https://learning.oreilly.com
-    
-    [!] Bye!!
-    ```  
-     The result will be (opening the `EPUB` file with Calibre):  
+This downloads the book and automatically converts it to a clean EPUB using Calibre. The final file lands in the `Books/` folder.
 
-    ![Book Appearance](https://github.com/lorenzodifuccia/cloudflare/raw/master/Images/safaribooks/safaribooks_example01_TDD.png "Book opened with Calibre")  
- 
-  * ## Use or not the `--kindle` option:
-    ```bash
-    $ python3 safaribooks.py --kindle 9781491958698
-    ```  
-    On the right, the book created with `--kindle` option, on the left without (default):  
-    
-    ![NoKindle Option](https://github.com/lorenzodifuccia/cloudflare/raw/master/Images/safaribooks/safaribooks_example02_NoKindle.png "Version compare")  
-    
----  
-  
-## Thanks!!
-For any kind of problem, please don't hesitate to open an issue here on *GitHub*.  
-  
+**If you don't have Calibre installed** and just want the raw download:
+
+```shell
+python3 safaribooks.py BOOK_ID
+```
+
+#### Options (when using `safaribooks.py` directly)
+
+| Option | What it does |
+|---|---|
+| `--kindle` | Better formatting for Kindle and other e-readers (prevents tables from overflowing) |
+| `--preserve-log` | Keep the log file even if everything went fine |
+
+#### A note on EPUB quality
+
+The raw EPUB from `safaribooks.py` works but has some quirks — CSS and formatting may look off on e-readers. The converted version from `download_book.sh` is cleaner and more compatible. For Kindle specifically, convert to AZW3 or MOBI in Calibre and check "Ignore margins" in the conversion settings:
+
+![Calibre IgnoreMargins](https://github.com/lorenzodifuccia/cloudflare/raw/master/Images/safaribooks/safaribooks_calibre_IgnoreMargins.png)
+
+---
+
+## Troubleshooting
+
+**"Authentication issue" or "book not found"** — Your cookies have expired. Redo Step 1.
+
+**"No module named requests"** — Run `pip3 install -r requirements.txt` first.
+
+**"Operation not permitted" when running retrieve_cookies.py on Mac** — Go to System Settings → Privacy & Security → Full Disk Access and add Terminal.
+
+**Book downloads but images are missing** — This can happen if cookies expire mid-download. Refresh `cookies.json` and run again — already downloaded chapters will be skipped.
+
+---
+
+## Proxies
+
+You can route traffic through a proxy by setting the `HTTPS_PROXY` environment variable, or by enabling the `USE_PROXY` flag inside `safaribooks.py`.
+
+---
+
+For any problems, feel free to open an issue on GitHub.
+
 *Lorenzo Di Fuccia*
