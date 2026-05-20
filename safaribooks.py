@@ -30,6 +30,9 @@ ORLY_BASE_URL = "https://www." + ORLY_BASE_HOST
 SAFARI_BASE_URL = "https://" + SAFARI_BASE_HOST
 API_ORIGIN_URL = "https://" + API_ORIGIN_HOST
 PROFILE_URL = SAFARI_BASE_URL + "/profile/"
+API_V2_BOOK = SAFARI_BASE_URL + "/api/v2/epubs/urn:orm:book:{0}/"
+API_V2_SPINE = SAFARI_BASE_URL + "/api/v2/epubs/urn:orm:book:{0}/spine/"
+API_V2_TOC = SAFARI_BASE_URL + "/api/v2/epubs/urn:orm:book:{0}/table-of-contents/"
 
 # DEBUG
 USE_PROXY = False
@@ -329,6 +332,9 @@ class SafariBooks:
                                   "    Please use the `--cred` or `--login` options to perform the login.")
 
             self.session.cookies.update(json.load(open(COOKIES_FILE)))
+            jwt = self.session.cookies.get('orm-jwt')
+            if jwt:
+                self.session.headers.update({'Authorization': 'Bearer ' + jwt})
 
         else:
             self.display.info("Logging into Safari Books Online...", state=True)
@@ -340,6 +346,7 @@ class SafariBooks:
 
         self.book_id = args.bookid
         self.api_url = self.API_TEMPLATE.format(self.book_id)
+        self.use_v2 = False
 
         self.display.info("Retrieving book info...")
         self.book_info = self.get_book_info()
@@ -381,7 +388,7 @@ class SafariBooks:
         self.cover = False
         self.get()
         if not self.cover:
-            self.cover = self.get_default_cover() if "cover" in self.book_info else False
+            self.cover = self.get_default_cover() if self.book_info.get("cover") else False
             cover_html = self.parse_html(
                 html.fromstring("<div id=\"sbo-rt-content\"><img src=\"Images/{0}\"></div>".format(self.cover)), True
             )
@@ -516,16 +523,23 @@ class SafariBooks:
             self.display.exit("Login: unable to reach Safari Books Online. Try again...")
 
     def check_login(self):
-        response = self.requests_provider(PROFILE_URL, perform_redirect=False)
+        try:
+            response = self.session.get(PROFILE_URL)
+        except (requests.ConnectionError, requests.ConnectTimeout, requests.RequestException) as e:
+            self.display.exit("Login: unable to reach Safari Books Online: %s" % e)
 
-        if response == 0:
-            self.display.exit("Login: unable to reach Safari Books Online. Try again...")
-
-        elif response.status_code != 200:
-            self.display.exit("Authentication issue: unable to access profile page.")
+        if response.status_code != 200:
+            self.display.exit("Authentication issue: unable to access profile page (HTTP %s)." % response.status_code)
 
         elif "user_type\":\"Expired\"" in response.text:
             self.display.exit("Authentication issue: account subscription expired.")
+
+        elif "\"user_type\"" not in response.text:
+            self.display.exit(
+                "Authentication issue: session cookies appear invalid or expired.\n"
+                "    Please refresh cookies.json by running:\n"
+                "        python3 retrieve_cookies.py"
+            )
 
         self.display.info("Successfully authenticated.", state=True)
 
@@ -534,9 +548,66 @@ class SafariBooks:
         if response == 0:
             self.display.exit("API: unable to retrieve book info.")
 
-        response = response.json()
+        if response.status_code == 404:
+            self.display.info("v1 API unavailable, falling back to v2 API...")
+            self.use_v2 = True
+            return self.get_book_info_v2()
+
+        if response.status_code in (401, 403):
+            self.display.exit(
+                "API: authentication failed (HTTP %s).\n"
+                "    Refresh cookies.json — open learning.oreilly.com in your browser,\n"
+                "    open DevTools console and run:\n"
+                "        var o={};document.cookie.split(/\\s*;\\s*/).forEach(function(p)"
+                "{p=p.split(/\\s*=\\s*/);o[p[0]]=p.splice(1).join('=')});console.log(JSON.stringify(o))\n"
+                "    then paste the output into cookies.json." % response.status_code
+            )
+        try:
+            response = response.json()
+        except ValueError:
+            self.display.exit(
+                "API: unexpected response from book info endpoint (HTTP %s).\n"
+                "    Response preview: %s" % (response.status_code, response.text[:300])
+            )
+
         if not isinstance(response, dict) or len(response.keys()) == 1:
             self.display.exit(self.display.api_error(response))
+
+    def get_book_info_v2(self):
+        url = API_V2_BOOK.format(self.book_id)
+        response = self.requests_provider(url)
+        if response == 0:
+            self.display.exit("API v2: unable to retrieve book info.")
+
+        if response.status_code == 404:
+            self.display.exit(
+                "API v2: book not found (HTTP 404).\n"
+                "    Check that the book ID is correct:\n"
+                "    `https://learning.oreilly.com/library/view/book-name/%s/`" % self.book_id
+            )
+
+        try:
+            data = response.json()
+        except ValueError:
+            self.display.exit(
+                "API v2: unexpected response (HTTP %s): %s" %
+                (response.status_code, response.text[:300])
+            )
+
+        desc = data.get("descriptions", {})
+        return {
+            "title": data.get("title", "Unknown"),
+            "identifier": data.get("identifier", self.book_id),
+            "isbn": data.get("isbn", self.book_id),
+            "authors": [],
+            "publishers": [],
+            "subjects": [],
+            "rights": "",
+            "description": desc.get("text/plain", desc.get("text/html", "")),
+            "issued": data.get("publication_date", ""),
+            "web_url": "%s/api/v2/epubs/urn:orm:book:%s/files/" % (SAFARI_BASE_URL, self.book_id),
+            "cover": None,
+        }
 
         if "last_chapter_read" in response:
             del response["last_chapter_read"]
@@ -548,11 +619,22 @@ class SafariBooks:
         return response
 
     def get_book_chapters(self, page=1):
+        if self.use_v2:
+            return self.get_book_chapters_v2()
+
         response = self.requests_provider(urljoin(self.api_url, "chapter/?page=%s" % page))
         if response == 0:
             self.display.exit("API: unable to retrieve book chapters.")
 
-        response = response.json()
+        try:
+            response = response.json()
+        except ValueError:
+            self.display.exit(
+                "API: non-JSON response from chapters endpoint (HTTP %s).\n"
+                "    Your session cookies are likely expired. Refresh cookies.json by running:\n"
+                "        uv run --with browser_cookie3 python retrieve_cookies.py" %
+                response.status_code
+            )
 
         if not isinstance(response, dict) or len(response.keys()) == 1:
             self.display.exit(self.display.api_error(response))
@@ -570,6 +652,37 @@ class SafariBooks:
 
         result += response["results"]
         return result + (self.get_book_chapters(page + 1) if response["next"] else [])
+
+    def get_book_chapters_v2(self, url=None):
+        url = url or API_V2_SPINE.format(self.book_id)
+        response = self.requests_provider(url)
+        if response == 0:
+            self.display.exit("API v2: unable to retrieve book spine.")
+
+        try:
+            data = response.json()
+        except ValueError:
+            self.display.exit("API v2: non-JSON spine response (HTTP %s)" % response.status_code)
+
+        files_base = "%s/api/v2/epubs/urn:orm:book:%s/files" % (SAFARI_BASE_URL, self.book_id)
+        chapters = []
+        for item in data.get("results", []):
+            ref_id = item.get("reference_id", "")
+            filename = ref_id.split("-/", 1)[-1] if "-/" in ref_id else ref_id
+            chapters.append({
+                "filename": filename,
+                "title": item.get("title", ""),
+                "content": "%s/%s" % (files_base, filename),
+                "asset_base_url": files_base,
+                "images": [],
+                "stylesheets": [],
+                "chapter_api_url": item.get("url", ""),
+            })
+
+        if data.get("next"):
+            chapters += self.get_book_chapters_v2(data["next"])
+
+        return chapters
 
     def get_default_cover(self):
         response = self.requests_provider(self.book_info["cover"], stream=True)
@@ -818,20 +931,36 @@ class SafariBooks:
                 asset_base_url = SAFARI_BASE_URL + "/api/v2/epubs/urn:orm:book:{}/files".format(self.book_id)
                 api_v2_detected = True
 
+            # For v2 chapters, fetch detail to populate images and stylesheets
+            if api_v2_detected and next_chapter.get("chapter_api_url") and \
+                    not next_chapter["images"] and not next_chapter["stylesheets"]:
+                detail_resp = self.requests_provider(next_chapter["chapter_api_url"])
+                if detail_resp and detail_resp != 0:
+                    try:
+                        detail = detail_resp.json()
+                        assets = detail.get("related_assets", {})
+                        next_chapter["images"] = assets.get("images", [])
+                        next_chapter["stylesheets"] = [{"url": u} for u in assets.get("stylesheets", [])]
+                    except ValueError:
+                        pass
+
             if "images" in next_chapter and len(next_chapter["images"]):
                 for img_url in next_chapter['images']:
                     if api_v2_detected:
-                        self.images.append(asset_base_url + '/' + img_url)
+                        # v2 returns full URLs; fall back to base-relative for older format
+                        if img_url.startswith("http"):
+                            self.images.append(img_url)
+                        else:
+                            self.images.append(asset_base_url + '/' + img_url)
                     else:
                         self.images.append(urljoin(next_chapter['asset_base_url'], img_url))
-
 
             # Stylesheets
             self.chapter_stylesheets = []
             if "stylesheets" in next_chapter and len(next_chapter["stylesheets"]):
                 self.chapter_stylesheets.extend(x["url"] for x in next_chapter["stylesheets"])
 
-            if "site_styles" in next_chapter and len(next_chapter["site_styles"]):
+            if "site_styles" in next_chapter and len(next_chapter.get("site_styles", [])):
                 self.chapter_stylesheets.extend(next_chapter["site_styles"])
 
             if os.path.isfile(os.path.join(self.BOOK_PATH, "OEBPS", self.filename.replace(".html", ".xhtml"))):
@@ -1003,13 +1132,24 @@ class SafariBooks:
         return r, c, mx
 
     def create_toc(self):
+        if self.use_v2:
+            return self.create_toc_v2()
+
         response = self.requests_provider(urljoin(self.api_url, "toc/"))
         if response == 0:
             self.display.exit("API: unable to retrieve book chapters. "
                               "Don't delete any files, just run again this program"
                               " in order to complete the `.epub` creation!")
 
-        response = response.json()
+        try:
+            response = response.json()
+        except ValueError:
+            self.display.exit(
+                "API: non-JSON response from TOC endpoint (HTTP %s). "
+                "Don't delete any files, just run again this program "
+                "in order to complete the `.epub` creation!" %
+                response.status_code
+            )
 
         if not isinstance(response, list) and len(response.keys()) == 1:
             self.display.exit(
@@ -1024,6 +1164,49 @@ class SafariBooks:
             max_depth,
             self.book_title,
             ", ".join(aut.get("name", "") for aut in self.book_info.get("authors", [])),
+            navmap
+        )
+
+    @staticmethod
+    def _normalize_toc_v2(entries):
+        result = []
+        for e in entries:
+            ref_id = e.get("reference_id", "")
+            filename = ref_id.split("-/", 1)[-1] if "-/" in ref_id else ref_id
+            filename = filename.replace(".html", ".xhtml")
+            result.append({
+                "depth": e.get("depth", 1),
+                "fragment": e.get("fragment", ""),
+                "id": e.get("ourn", ""),
+                "label": e.get("title", ""),
+                "href": filename,
+                "children": SafariBooks._normalize_toc_v2(e.get("children", [])),
+            })
+        return result
+
+    def create_toc_v2(self):
+        url = API_V2_TOC.format(self.book_id)
+        response = self.requests_provider(url)
+        if response == 0:
+            self.display.exit("API v2: unable to retrieve TOC. "
+                              "Don't delete any files, just run again this program "
+                              "in order to complete the `.epub` creation!")
+        try:
+            data = response.json()
+        except ValueError:
+            self.display.exit(
+                "API v2: non-JSON TOC response (HTTP %s). "
+                "Don't delete any files, just run again this program "
+                "in order to complete the `.epub` creation!" % response.status_code
+            )
+
+        normalized = self._normalize_toc_v2(data if isinstance(data, list) else [])
+        navmap, _, max_depth = self.parse_toc(normalized)
+        return self.TOC_NCX.format(
+            self.book_info.get("isbn", self.book_id) or self.book_id,
+            max_depth,
+            self.book_title,
+            "",
             navmap
         )
 
