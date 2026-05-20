@@ -4,7 +4,11 @@ This is for *personal* and *educational* use only. Please read [O'Reilly's Terms
 
 > **This is a fork of [lorenzodifuccia/safaribooks](https://github.com/lorenzodifuccia/safaribooks).** The original project stopped working when O'Reilly shut down their v1 API. This fork fixes that by migrating to the current v2 API, so downloads work again.
 
-<a href='https://ko-fi.com/Y8Y0MPEGU' target='_blank'><img height='80' style='border:0px;height:60px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com'/></a>
+If this fork saved you some time, you can buy me a coffee:  
+<a href='https://ko-fi.com/jaanek' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com'/></a>
+
+Support the original author too:  
+<a href='https://ko-fi.com/Y8Y0MPEGU' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com'/></a>
 
 ---
 
